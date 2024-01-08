@@ -1,15 +1,19 @@
 package 연결리스트;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
 
-public class 연결리스트 {
+
+public class LinkedList테스트 {
     public static void main(String[] args) throws Exception {
         System.out.println("연결리스트입니다.");
 
         // 자바 연결리스트
         
         // 1. 선언
-        List<Integer> list1 = new java.util.LinkedList<>();
+        List<Integer> list1 = new LinkedList<>();
 
         // 2. 값 추가
         list1.add(100);

@@ -3,12 +3,14 @@ package 연결리스트;
 import java.io.Serializable;
 import java.util.AbstractSequentialList;
 import java.util.Collection;
+import java.util.ConcurrentModificationException;
 import java.util.Deque;
 import java.util.Iterator;
-import java.util.List;
 import java.util.ListIterator;
+import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.function.Consumer;
 
-import org.w3c.dom.Node;
 
 /**
  * java.util.LinkedList의 구현을 직접 보고 내가 구현한 양방향연결리스트와
@@ -16,9 +18,10 @@ import org.w3c.dom.Node;
  * 일단 편의로 생략했던 내 구현과 달리 제네릭 클래스로 선언되어있다.
  * 또한 ArrayList와 동일하기 List 인터페이스를 가지고 있다. 별도로 Deque가 있고
  * 이번엔 Cloneable과 Serializable(ArrayList에선 생략했던) 인터페이스도 둘 다 구현해보고자 한다.
+ * 그런데 List<E>가 이미 AbstractList 내부에서 구현되고 있는데 한 번더 상속하고 있는 문제가 있다.
  *  */ 
 public class LinkedList<E> extends AbstractSequentialList<E>
-    implements List<E>, Deque<E>, Cloneable, Serializable{
+    implements Deque<E>, Cloneable, Serializable{
 
     /**
      * size는 직렬화된 오브젝트가 인스턴스화 활 때 다시 정해지므로
@@ -72,17 +75,67 @@ public class LinkedList<E> extends AbstractSequentialList<E>
         addAll(c);
     }
 
-    
-
-    @Override
-    public ListIterator<E> listIterator(int index) {
-        // TODO Auto-generated method stub
-        return null;
-    }
-
     @Override
     public int size() {
         return size;
+    }
+
+    /**
+     * 인덱스의 값이 범위를 벗어나는지 체크함
+     * @param index
+     */
+    private void checkElementIndex(int index) {
+        if (!(index >= 0 && index < size))
+            throw new IndexOutOfBoundsException("인덱스: "+index+", 사이즈: "+size);
+    }
+
+    /**
+     * 특정 인덱스 값의 노드를 반환한다.
+     * 
+     * @param  index 반환할 노드의 인덱스
+     * @return {@link Node} 노드 반환
+     */
+    Node<E> node(int index) {
+        if (index < (size >> 1)) {
+            Node<E> x = first;
+            for (int i = 0; i < index; i++)
+                x = x.next;
+            return x;
+        } else {
+            Node<E> x = last;
+            for (int i = size - 1; i > index; i--)
+                x = x.prev;
+            return x;
+        }
+    }
+
+    // 포지션 연산
+    /**
+     * 이 리스트의 특정 인덱스의 노드 값을 반환함.
+     *
+     * @param index 반환할 값의 인덱스
+     * @return the element at the specified position in this list
+     * @throws IndexOutOfBoundsException {@inheritDoc}
+     */
+    public E get(int index) {
+        checkElementIndex(index);
+        return node(index).data;
+    }
+
+    /**
+     * 이 리스트의 특정 인덱스의 노드 값을 지정함.
+     *
+     * @param index 지정할 값의 인덱스
+     * @param element element to be stored at the specified position
+     * @return the element previously at the specified position
+     * @throws IndexOutOfBoundsException {@inheritDoc}
+     */
+    public E set(int index, E element) {
+        checkElementIndex(index);
+        Node<E> x = node(index);
+        E oldVal = x.data;
+        x.data = element;
+        return oldVal;
     }
 
     /**
@@ -170,138 +223,666 @@ public class LinkedList<E> extends AbstractSequentialList<E>
         return clone;
     }
 
+    /**
+     * 첫번째 노드에 입력된 값을 추가한다.
+     * @param e 추가될 노드의 값
+     */
     @Override
     public void addFirst(E e) {
-        // TODO Auto-generated method stub
+        final Node<E> f = first; // 첫 번째의 포인터를 임시 저장함.
+        final Node<E> newNode = new Node<>(null, e, f);
+        first = newNode; // 첫 번째를 미리 치환한다.
         
+        if (f == null) // 첫번째 노드일 경우
+            last = newNode; // 마지막 노드도 추가할 노드로 지정한다.
+        else // 첫번째가 아닐경우
+            f.prev = newNode; // 임시 저장된 첫 번째의 앞 노드를 추가할 노드로 지정
+        size++; 
+        modCount++;
     }
 
+    /**
+     * 마지막 노드에 입력된 값을 추가한다.
+     * @param e 추가될 노드의 값
+     */
     @Override
     public void addLast(E e) {
-        // TODO Auto-generated method stub
-        
+        final Node<E> l = last;
+        final Node<E> newNode = new Node<>(l, e, null);
+        last = newNode;
+        if (l == null)
+            first = newNode;
+        else
+            l.next = newNode;
+        size++;
+        modCount++;
     }
 
-    @Override
-    public Iterator<E> descendingIterator() {
-        // TODO Auto-generated method stub
-        return null;
+    /**
+     * 마지막 노드에 입력된 값을 추가한다.
+     * {@link LinkedList.addLast}와 같은 로직을 가진다.'
+     * 아래의 {@link LinkedList.linkBefore}와 일관된 명명규칙을 위해 사용하는 것으로 보임
+     * 
+     * @param e 추가될 노드의 값
+     */
+    void linkLast(E e) {
+        addLast(e);
     }
 
+    /**
+     * null이 아닌 노드의 전에 요소를 추가한다.
+     * 
+     * @param e 추가될 노드의 값
+     */
+    void linkBefore(E e, Node<E> node) {
+        final Node<E> nodePrev = node.prev;
+        final Node<E> newNode = new Node<>(nodePrev, e, node);
+        node.prev = newNode;
+        if (nodePrev == null)
+            first = newNode; //노드의 앞에 null이 있다면 추가되는게 첫 번째 노드임
+        else
+            // 기존 노드의 앞에 있던 노드의 다음을 추가할 노드의 주소를 가르키게 변경
+            nodePrev.next = newNode;
+        size++;
+        modCount++;
+    }
+
+    /**
+     * 입력된 노드의 값을 제거하고 해당 노드의 앞 뒤 노드들을 서로 이어줌
+     * 
+     * @param x 제거할 노드
+     * @return {@code E} 제거된 노드의 값
+     */
+    E unlink(Node<E> x) {
+        // assert x != null;
+        final E element = x.data;
+        final Node<E> next = x.next;
+        final Node<E> prev = x.prev;
+
+        if (prev == null) {
+            first = next;
+        } else {
+            prev.next = next;
+            x.prev = null;
+        }
+
+        if (next == null) {
+            last = prev;
+        } else {
+            next.prev = prev;
+            x.next = null;
+        }
+
+        x.data = null;
+        size--;
+        modCount++;
+        return element;
+    }
+
+    /**
+     * 입력된 노드의 값을 제거하고 입력된 노드의 다음 노드로 첫 번째 노드를 지정한다.
+     * 
+     * @param f 제거할 노드
+     * @return {@code E} 매개변수로 입력된 노드의 값
+     */
+    private E unlinkFirst(Node<E> f) {
+        // assert f == first && f != null;
+        final E element = f.data;
+        final Node<E> next = f.next;
+        f.data = null;
+        f.next = null;
+        first = next;
+        if (next == null)
+            last = null;
+        else
+            next.prev = null;
+        size--;
+        modCount++;
+        return element;
+    }
+
+    /**
+     * 입력된 노드의 값을 제거하고  입력된 노드의 이전 노드를 마지막 노드로 지정한다.
+     * 
+     * @param f 제거할 노드
+     * @return {@code E} 매개변수로 입력된 노드의 값
+     */
+    private E unlinkLast(Node<E> l) {
+        // assert l == last && l != null;
+        final E element = l.data;
+        final Node<E> prev = l.prev;
+        l.data = null;
+        l.prev = null;
+        last = prev;
+        if (prev == null)
+            first = null;
+        else
+            prev.next = null;
+        size--;
+        modCount++;
+        return element;
+    }
+
+    /**
+     * 리스트의 마지막에 입력된 값의 노드를 추가한다.
+     *
+     * @param e 추가될 노드의 값
+     * @return {@code true} 추가가 정상적으로 될 경우 true를 반환
+     */
+    public boolean add(E e) {
+        addLast(e);
+        return true;
+    }
+
+
+    /**
+     * 노드들 중 첫 번째 요소의 값을 반환한다.
+     * 왜 똑같은 기능을 하는 메서드를 두 명명규칙을 이용해서 명명한지는 모르겠다.
+     * 일단 이 메서드는 오래되었고 get과 set이라는 명명규칙이 정해지고 나서부터 점점 바뀌고 있다고 한다.
+     * @return 첫 번째 노드의 요소의 값
+     * @throws NoSuchElementException 리스트가 비어있는 경우 에러
+     */
     @Override
     public E element() {
-        // TODO Auto-generated method stub
-        return null;
+        return getFirst();
     }
-
+    
+    /**
+     * 노드들 중 첫 번째 요소의 값을 반환한다.
+     * @return 첫 번째 노드의 요소의 값
+     * @throws NoSuchElementException 리스트가 비어있는 경우 에러발생
+     */
     @Override
     public E getFirst() {
-        // TODO Auto-generated method stub
-        return null;
+        final Node<E> f = first;
+        if (f == null)
+            throw new NoSuchElementException();
+        return f.data;
     }
 
+    /**
+     * 노드들 중 마지막 요소의 값을 반환한다.
+     * @return 마지막 노드의 요소의 값
+     * @throws NoSuchElementException 리스트가 비어있는 경우 에러발생
+     */
     @Override
     public E getLast() {
-        // TODO Auto-generated method stub
-        return null;
+        final Node<E> l = last;
+        if (l == null)
+            throw new NoSuchElementException();
+        return l.data;
     }
 
+    /**
+     * 리스트의 마지막에 입력된 값의 노드를 추가한다.
+     * {@link LinkedList#add}와 동일한 기능을 수행한다
+     *
+     * @param e 추가될 노드의 값
+     * @return {@code true} 추가가 정상적으로 될 경우 true를 반환
+     */
     @Override
     public boolean offer(E e) {
-        // TODO Auto-generated method stub
-        return false;
+        return add(e);
     }
 
+    // Deque 연산
+    /**
+     * 노드들의 맨 앞에 새로운 입력된 값의 노드를 추가한다.
+     * {@code true}를 반환하는 것 말고 {@link LinkedList#addFirst}와 같은 동작을 수행한다.
+     * @param e 추가될 노드의 값
+     * @return {@code true} ({@link Deque#offerFirst}의 정의를 따라 true를 반환함)
+     */
     @Override
     public boolean offerFirst(E e) {
-        // TODO Auto-generated method stub
-        return false;
+        addFirst(e);
+        return true;
     }
 
+    /**
+     * 노드들의 맨 앞에 새로운 입력된 값의 노드를 추가한다.
+     * {@code true}를 반환하는 것 말고 {@link LinkedList#addLast}와 같은 동작을 수행한다.
+     * @param e 추가될 노드의 값
+     * @return {@code true} ({@link Deque#offerLast}의 정의를 따라 true를 반환함)
+     */
     @Override
     public boolean offerLast(E e) {
-        // TODO Auto-generated method stub
-        return false;
+        addLast(e);
+        return true;
     }
 
+    /**
+     * 맨 앞 노드의 값을 반환한다.
+     * 
+     * @return {@code E}인 값 혹은 비어있을 경우 {@code null}을 반환 ({@link Deque#peek}의 정의를 따름 )
+     */
     @Override
     public E peek() {
-        // TODO Auto-generated method stub
-        return null;
+        final Node<E> f = first;
+        return (f == null) ? null : f.data;
     }
 
+    /**
+     * 맨 앞 노드의 값을 반환한다.
+     * {@link LinkedList#peek}와 같은 동작을 수행한다.
+     *
+     * @return {@code E}인 값 혹은 비어있을 경우 {@code null}을 반환 ({@link Deque#peekFirst}의 정의를 따름 )
+     */
     @Override
     public E peekFirst() {
-        // TODO Auto-generated method stub
-        return null;
+        final Node<E> f = first;
+        return (f == null) ? null : f.data;
     }
 
+    /**
+     * 맨 마지막 노드의 값을 반환한다.
+     *
+     * @return {@code E}인 값 혹은 비어있을 경우 {@code null}을 반환 ({@link Deque#peekLast}의 정의를 따름 )
+     */
     @Override
     public E peekLast() {
-        // TODO Auto-generated method stub
-        return null;
+        final Node<E> l = last;
+        return (l == null) ? null : l.data;
     }
 
     @Override
     public E poll() {
-        // TODO Auto-generated method stub
-        return null;
+        final Node<E> f = first;
+        return (f == null) ? null : unlinkFirst(f);
     }
 
+    /**
+     * 맨 첫 번째 노드의 값을 반환한다.
+     *
+     * @return {@code E}인 값 혹은 비어있을 경우 {@code null}을 반환 ({@link Deque#pollFirst}의 정의를 따름 )
+     */
     @Override
     public E pollFirst() {
-        // TODO Auto-generated method stub
-        return null;
+        final Node<E> f = first;
+        return (f == null) ? null : unlinkFirst(f);
     }
 
+    /**
+     * 맨 마지막 노드의 값을 반환한다.
+     *
+     * @return {@code E}인 값 혹은 비어있을 경우 {@code null}을 반환 ({@link Deque#pollLast}의 정의를 따름 )
+     */
     @Override
     public E pollLast() {
-        // TODO Auto-generated method stub
-        return null;
+        final Node<E> l = last;
+        return (l == null) ? null : unlinkLast(l);
     }
 
+    /**
+     * 첫 번째 노드의 값을 제거하고 반환한다.
+     * 이 메소드는 {@link LinkedList#removeFirst} 와 동일하다.
+     *
+     * @return 현재 리스트의 첫 번째 노드의 값
+     * @throws NoSuchElementException 만약 리스트가 비어있다면 에러 발생
+     */
     @Override
     public E pop() {
-        // TODO Auto-generated method stub
-        return null;
+        return removeFirst();
     }
 
+    /**
+     * 첫번째 노드에 입력된 값을 추가한다.
+     * 이 메소드는 {@link LinkedList#addFirst} 와 동일하다.
+     * 
+     * @param e 추가될 노드의 값
+     */
     @Override
     public void push(E e) {
-        // TODO Auto-generated method stub
-        
+        addFirst(e);
     }
 
+    /**
+     * 첫 번째 노드의 값을 제거하고 반환한다.
+     * 이 메소드는 {@link LinkedList#removeFirst} 와 동일하다.
+     *
+     * @return 현재 리스트의 첫 번째 노드의 값
+     * @throws NoSuchElementException 만약 리스트가 비어있다면 에러 발생
+     */
     @Override
     public E remove() {
-        // TODO Auto-generated method stub
-        return null;
+        return removeFirst();
     }
 
+    /**
+     * 첫 번째 노드의 값을 제거하고 반환한다.
+     *
+     * @return 현재 리스트의 첫 번째 노드의 값
+     * @throws NoSuchElementException 만약 리스트가 비어있다면 에러 발생
+     */
     @Override
     public E removeFirst() {
-        // TODO Auto-generated method stub
-        return null;
+        final Node<E> f = first;
+        if (f == null)
+            throw new NoSuchElementException();
+        return unlinkFirst(f);
     }
 
+    /**
+     * 입력된 오브젝트의 값과 동일한 값을 가진 노드를 탐색하여 처음 일치하는 노드를 제거
+     * 
+     * @param o 제거할 노드의 값
+     * @return 삭제를 성공할 경우 {@code true}, 실패할 경우 {@code false} 반환
+     */
     @Override
     public boolean removeFirstOccurrence(Object o) {
-        // TODO Auto-generated method stub
+        if (o == null) {
+            for (Node<E> x = first; x != null; x = x.next) {
+                if (x.data == null) {
+                    unlink(x);
+                    return true;
+                }
+            }
+        } else {
+            for (Node<E> x = first; x != null; x = x.next) {
+                if (o.equals(x.data)) {
+                    unlink(x);
+                    return true;
+                }
+            }
+        }
         return false;
     }
 
+    /**
+     * 마지막 노드의 값을 제거하고 반환한다.
+     *
+     * @return 현재 리스트의 마지막 노드의 값
+     * @throws NoSuchElementException 만약 리스트가 비어있다면 에러 발생
+     */
     @Override
     public E removeLast() {
-        // TODO Auto-generated method stub
-        return null;
+        final Node<E> l = last;
+        if (l == null)
+            throw new NoSuchElementException();
+        return unlinkLast(l);
     }
 
+    /**
+     * 입력된 오브젝트의 값과 동일한 값을 가진 노드를 뒤에서부터 탐색하여 
+     * 처음 일치하는 노드를 제거
+     * 
+     * @param o 제거할 노드의 값
+     * @return 삭제를 성공할 경우 {@code true}, 실패할 경우 {@code false} 반환
+     */    
     @Override
     public boolean removeLastOccurrence(Object o) {
-        // TODO Auto-generated method stub
+        if (o == null) {
+            for (Node<E> x = last; x != null; x = x.prev) {
+                if (x.data == null) {
+                    unlink(x);
+                    return true;
+                }
+            }
+        } else {
+            for (Node<E> x = last; x != null; x = x.prev) {
+                if (o.equals(x.data)) {
+                    unlink(x);
+                    return true;
+                }
+            }
+        }
         return false;
     }
 
+    @Override
+    public ListIterator<E> listIterator(int index) {
+        checkElementIndex(index);
+        return new ListItr(index);
+    }
+
+    /**
+     * LinkedList는 Itr 클래스를 가지고 있지 않고 모든 것을 ListItr에서 구현한다.
+     */
+    private class ListItr implements ListIterator<E> {
+        private Node<E> lastReturned;
+        private Node<E> next;
+        private int nextIndex;
+        private int expectedModCount = modCount;
+
+        /**
+         * ListItr의 생성자, 항상 index가 주어져야만 함
+         * @param index
+         */
+        ListItr(int index) {
+            next = (index == size) ? null : node(index);
+            nextIndex = index;
+        }
+
+        /**
+         * size보다 nextIndex가 작으면 다음을 가지고 있음
+         * @return 작다면 {@code true} 반환, 크다면 {@code false} 반환
+         */
+        public boolean hasNext() {
+            return nextIndex < size;
+        }
+
+        /**
+         * 다음 노드의 데이터를 반환하고 next를 그 다음으로 치환
+         * 
+         * @return {@code E} 다음 노드의 데이터
+         */
+        public E next() {
+            checkForComodification();
+            if (!hasNext())
+                throw new NoSuchElementException();
+
+            lastReturned = next;
+            next = next.next;
+            nextIndex++;
+            return lastReturned.data;
+        }
+
+        /**
+         * nextIndex가 0보다 크다면 다음을 가지고 있음
+         * @return 크다면 {@code true} 반환, 작다면 {@code false} 반환
+         */
+        public boolean hasPrevious() {
+            return nextIndex > 0;
+        }
+
+        /**
+         * 반복자를 이전으로 넘기고 값의 이전 값을 next로 치환
+         * 
+         * @return {@code E} 이전 노드의 데이터 혹은 {@code next}가 0일 경우 마지막 값
+         */
+        public E previous() {
+            checkForComodification();
+            if (!hasPrevious())
+                throw new NoSuchElementException();
+
+            lastReturned = next = (next == null) ? last : next.prev;
+            nextIndex--;
+            return lastReturned.data;
+        }
+
+        public int nextIndex() {
+            return nextIndex;
+        }
+
+        public int previousIndex() {
+            return nextIndex - 1;
+        }
+
+        public void remove() {
+            checkForComodification();
+            if (lastReturned == null)
+                throw new IllegalStateException();
+
+            Node<E> lastNext = lastReturned.next;
+            unlink(lastReturned);
+            if (next == lastReturned)
+                next = lastNext;
+            else
+                nextIndex--;
+            lastReturned = null;
+            expectedModCount++;
+        }
+
+        public void set(E e) {
+            if (lastReturned == null)
+                throw new IllegalStateException();
+            checkForComodification();
+            lastReturned.data = e;
+        }
+
+        public void add(E e) {
+            checkForComodification();
+            lastReturned = null;
+            if (next == null)
+                linkLast(e);
+            else
+                linkBefore(e, next);
+            nextIndex++;
+            expectedModCount++;
+        }
+
+        /**
+         * 함수형 프로그래밍을 구현하기 위해 도입된 것
+         * action은 함수나 람다식의 일종이고 action의 동작을 이터레이터의 데이터를 통해 에러가 나거나 남는 데이터가 없을 때까지 처리한다.
+         * 
+         * @param action 수행할 동작 함수
+         */
+        public void forEachRemaining(Consumer<? super E> action) {
+            Objects.requireNonNull(action);
+            while (modCount == expectedModCount && nextIndex < size) {
+                action.accept(next.data);
+                lastReturned = next;
+                next = next.next;
+                nextIndex++;
+            }
+            checkForComodification();
+        }
+
+        /**
+         * 반복자로 객체를 여러 스레드에서 동시에 수정하고자 하는경우 발생하는 에러
+         */
+        final void checkForComodification() {
+            if (modCount != expectedModCount)
+                throw new ConcurrentModificationException();
+        }
+    }
+
+    @Override
+    public Iterator<E> descendingIterator() {
+        return new DescendingIterator();
+    }
+
+    /**
+     * {@link ListItr#previous}를 통해 내림차순 이터레이터를 제공하는 어댑터
+     * {@link Iterator}를 확장해 최소한의 기능만을 가지고 있다.
+     */
+    private class DescendingIterator implements Iterator<E> {
+        private final ListItr itr = new ListItr(size());
+        public boolean hasNext() {
+            return itr.hasPrevious();
+        }
+        public E next() {
+            return itr.previous();
+        }
+        public void remove() {
+            itr.remove();
+        }
+    }
     
+    // ToString() 오버라이드
+    @Override
+    public String toString() {
+        Iterator<E> it = listIterator(0);
+        if (! it.hasNext())
+            return "[]";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append('[');
+        for (;;) {
+            E e = it.next();
+            sb.append(e == this ? "(this Collection)" : e);
+            if (! it.hasNext())
+                return sb.append(']').toString();
+            sb.append(',').append(' ');
+        }
+    }
+
+    /**
+     * 모든 노드의 값을 배열로 변환해서 반환함
+     *
+     * @return 리스트의 모든 값을 {@link Object} 배열로 변환해서 반환
+     */
+    public Object[] toArray() {
+        Object[] result = new Object[size];
+        int i = 0;
+        for (Node<E> x = first; x != null; x = x.next)
+            result[i++] = x.data;
+        return result;
+    }
+
+    /**
+     * 내부 배열을 복사하고 매개 변수로 들어온 배열의 값을 수정한 배열을 반환함
+     *
+     * @param a 복사될 값이 저장될 충분히 사이즈가 커야하는 배열,
+     *          그렇지 않으면 해당 클래스의 배열을 새롭게 할당해버린다.
+     * @return 리스트의 요소들이 담긴 배열을 반환함
+     * @throws ArrayStoreException 저장될 매개 변수의 타입이 리스트의 클래스의 슈퍼타입이 아님.
+     * @throws NullPointerException 지정된 배열의 값이 null임
+     */
+    @SuppressWarnings("unchecked")
+    public <T> T[] toArray(T[] a) {
+        if (a.length < size)
+            a = (T[])java.lang.reflect.Array.newInstance(
+                                a.getClass().getComponentType(), size);
+        int i = 0;
+        Object[] result = a;
+        for (Node<E> x = first; x != null; x = x.next)
+            result[i++] = x.data;
+
+        if (a.length > size)
+            a[size] = null;
+
+        return a;
+    }
+
+    @java.io.Serial
+    private static final long serialVersionUID = 876323262645176354L;
+
+    /**
+     * {@code LinkedList} 이 인스턴스의 스트림을 저장한다.
+     *
+     * @serialData 리스트의 직렬화된 데이터
+     */
+    @java.io.Serial
+    private void writeObject(java.io.ObjectOutputStream s)
+        throws java.io.IOException {
+        // 현재 클래스의 저장될 필드들을 저장함
+        s.defaultWriteObject();
+
+        // size를 별도로 저장함
+        s.writeInt(size);
+
+        // 모든 노드들의 값을 순차적으로 저장함
+        for (Node<E> x = first; x != null; x = x.next)
+            s.writeObject(x.data);
+    }
+
+    /**
+     * {@code LinkedList} 직렬화된 인스턴스의 스트림을 불러와서 새롭게 인스턴스화한다.
+     */
+    @SuppressWarnings("unchecked")
+    @java.io.Serial
+    private void readObject(java.io.ObjectInputStream s)
+        throws java.io.IOException, ClassNotFoundException {
+        // 현재 클래스의 저장된 필드들을 불러옴
+        s.defaultReadObject();
+
+        // 사이즈를 읽어옴
+        int size = s.readInt();
+
+        // 모든 노드들의 값을 순차적으로 읽어옴
+        for (int i = 0; i < size; i++)
+            linkLast((E)s.readObject());
+    }
+
     
 }

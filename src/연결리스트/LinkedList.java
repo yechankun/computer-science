@@ -4,7 +4,7 @@ import java.io.Serializable;
 import java.util.AbstractSequentialList;
 import java.util.Collection;
 import java.util.ConcurrentModificationException;
-import java.util.Deque;
+import 큐.Deque;
 import java.util.Iterator;
 import java.util.ListIterator;
 import java.util.NoSuchElementException;
@@ -533,6 +533,70 @@ public class LinkedList<E> extends AbstractSequentialList<E>
     @Override
     public void push(E e) {
         addFirst(e);
+    }
+
+    /**
+     * 노드의 특정 위치부터 지정된 컬렉션의 모든 원소들을 삽입함
+     * 기존 원소들을 오른쪽으로 시프트 시킴
+     * 새 요소는 지정된 컬렉션의 Iterator가 반환한 순서대로 목록에 추가됨
+     *
+     * @param index 지정된 컬렉션의 첫 번째 요소를 삽입할 인덱스
+     * @param c 이 목록에 추가할 요소가 포함된 컬렉션
+     * @return {@code true} 호출의 결과로 이 목록이 변경된 경우 반환
+     * @throws IndexOutOfBoundsException {@inheritDoc}
+     * @throws NullPointerException 지정된 컬렉션이 null인 경우
+     */
+    public boolean addAll(int index, Collection<? extends E> c) {
+        checkElementIndex(index);
+
+        Object[] a = c.toArray();
+        int numNew = a.length;
+        if (numNew == 0)
+            return false;
+
+        Node<E> pred, succ;
+        if (index == size) {
+            succ = null;
+            pred = last;
+        } else {
+            succ = node(index);
+            pred = succ.prev;
+        }
+
+        // 컬렉션의 Iterator를 불러냄
+        for (Object o : a) {
+            @SuppressWarnings("unchecked") E e = (E) o;
+            Node<E> newNode = new Node<>(pred, e, null);
+            if (pred == null)
+                first = newNode;
+            else
+                pred.next = newNode;
+            pred = newNode;
+        }
+
+        if (succ == null) {
+            last = pred;
+        } else {
+            pred.next = succ;
+            succ.prev = pred;
+        }
+
+        size += numNew;
+        modCount++;
+        return true;
+    }
+
+    /**
+     * 노드의 마지막에 지정된 컬렉션의 모든 원소들을 삽입함
+     * 새 요소는 지정된 컬렉션의 Iterator가 반환한 순서대로 목록에 추가됨
+     *
+     * @param index 지정된 컬렉션의 첫 번째 요소를 삽입할 인덱스
+     * @param c 이 목록에 추가할 요소가 포함된 컬렉션
+     * @return {@code true} 호출의 결과로 이 목록이 변경된 경우 반환
+     * @throws NullPointerException 지정된 컬렉션이 null인 경우
+     */
+    public boolean addAll(Collection<? extends E> c) {
+        return addAll(size, c);
     }
 
     /**
